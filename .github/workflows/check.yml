@@ -1,0 +1,42 @@
+name: Check intermediate classes
+
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 minutes (UTC); GitHub may start runs a few minutes late
+    - cron: "0 0 * * 1"    # weekly keepalive so GitHub doesn't pause the schedule
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Send a test Telegram message"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: check-classes
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check classes
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python check_classes.py ${{ inputs.test && '--test' || '' }}
+
+      - name: Weekly keepalive
+        if: github.event.schedule == '0 0 * * 1'
+        run: date -u > last_keepalive.txt
+
+      - name: Save state
+        run: |
+          git config user.name "proserve-watcher"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || (git commit -m "Update class state" && git push)
