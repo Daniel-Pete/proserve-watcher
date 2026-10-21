@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check ProServe Manila intermediate group classes and alert on Telegram when slots open."""
+"""Check ProServe Manila group classes (intermediate and beginner 2) and alert on Telegram when slots open."""
 import json
 import os
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 
 FEED_URL = "https://proservemanila.com/api/classes?venue=sta_ana"
 BOOKING_URL = "https://proservemanila.com/booking/classes"
-TIER = "intermediate"
+TIERS = {"intermediate": "Intermediate", "beginner_2": "Beginner 2"}
 STATE_FILE = Path(__file__).with_name("state.json")
 
 
@@ -19,7 +19,7 @@ def fetch_classes():
         payload = json.load(resp)
     if not payload.get("success") or not isinstance(payload.get("data"), list):
         raise RuntimeError(f"Unexpected response: {str(payload)[:200]}")
-    return [c for c in payload["data"] if c.get("tier") == TIER]
+    return [c for c in payload["data"] if c.get("tier") in TIERS]
 
 
 def bookable_slots(c):
@@ -30,6 +30,15 @@ def bookable_slots(c):
 
 def label(c):
     return f"{c['dateLabel']} · {c['timeLabel']} — {bookable_slots(c)}/{c['totalSlots']} slots"
+
+
+def section(title, classes):
+    lines = []
+    for tier, name in TIERS.items():
+        matching = [c for c in classes if c["tier"] == tier]
+        if matching:
+            lines += ["", f"{title} – {name}:"] + [f"• {label(c)}" for c in matching]
+    return lines
 
 
 def send_telegram(text):
@@ -55,17 +64,18 @@ def main():
     # Alert when a class goes from 0 (or unseen) to having open slots.
     newly_open = [c for c in classes if current[c["id"]] > 0 and previous.get(c["id"], 0) == 0]
     all_open = [c for c in classes if current[c["id"]] > 0]
-    print(f"{len(classes)} intermediate classes, {len(all_open)} with open slots, {len(newly_open)} newly open")
+    for tier, name in TIERS.items():
+        n = sum(c["tier"] == tier for c in classes)
+        n_open = sum(c["tier"] == tier for c in all_open)
+        print(f"{name}: {n} classes, {n_open} with open slots")
+    print(f"{len(newly_open)} newly open")
 
     if newly_open or "--test" in sys.argv:
-        lines = ["🎾 ProServe intermediate slots open!" if newly_open else "🎾 ProServe watcher test message"]
-        if newly_open:
-            lines += ["", "New:"] + [f"• {label(c)}" for c in newly_open]
-        others = [c for c in all_open if c not in newly_open]
-        if others:
-            lines += ["", "Still open:"] + [f"• {label(c)}" for c in others]
+        lines = ["🎾 ProServe class slots open!" if newly_open else "🎾 ProServe watcher test message"]
+        lines += section("New", newly_open)
+        lines += section("Still open", [c for c in all_open if c not in newly_open])
         if not all_open:
-            lines += ["", f"All {len(classes)} intermediate classes are currently full."]
+            lines += ["", f"All {len(classes)} {' and '.join(TIERS.values())} classes are currently full."]
         lines += ["", f"Book: {BOOKING_URL}"]
         send_telegram("\n".join(lines))
 

@@ -1,4 +1,4 @@
-name: Check intermediate classes
+name: Check group classes
 
 on:
   schedule:
